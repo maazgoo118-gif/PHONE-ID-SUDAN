@@ -6,7 +6,9 @@ const analysisBox = document.getElementById("analysis");
 const quickResults = document.getElementById("quickResults");
 const deepResults = document.getElementById("deepResults");
 
-searchBtn.addEventListener("click", searchPhone);
+if (searchBtn) {
+  searchBtn.addEventListener("click", searchPhone);
+}
 
 async function searchPhone() {
   const number = phoneInput.value.trim();
@@ -72,7 +74,6 @@ async function searchPhone() {
   }
 }
 
-// إضافة نص آمن
 function addText(parent, tag, text, className) {
   const element = document.createElement(tag);
   element.textContent = text;
@@ -85,12 +86,10 @@ function addText(parent, tag, text, className) {
   return element;
 }
 
-// عرض تحليل الرقم
 function showAnalysis(data) {
   if (!data) return;
 
   addText(analysisBox, "h3", "تحليل الرقم");
-
   addText(analysisBox, "p", `الرقم: ${data.number}`);
   addText(analysisBox, "p", `الدولة: ${data.country}`);
   addText(analysisBox, "p", `مفتاح الدولة: ${data.callingCode}`);
@@ -102,20 +101,49 @@ function showAnalysis(data) {
   );
 }
 
-// عرض الأسماء المرتبطة بالرقم
 function showNames(names) {
   addText(quickResults, "h3", "الأسماء المرتبطة بالرقم");
 
   names.forEach((item, index) => {
     const card = document.createElement("article");
 
-    addText(
-      card,
-      "h4",
-      item.display_name || "اسم غير متوفر"
-    );
+    addText(card, "h4", item.display_name || "اسم غير متوفر");
+    addText(card, "p", `النتيجة رقم ${index + 1}`);
+    addText(card, "p", `المصدر: ${item.source || "غير محدد"}`);
+    addText(card, "p", "حالة الاسم: معتمد");
 
-    addText(
-      card,
-      "p",
-      `النتيجة رقم ${index + 1
+    quickResults.appendChild(card);
+  });
+}
+
+function showResults(results) {
+  addText(quickResults, "h3", "نتائج البحث العام");
+
+  results.forEach(item => {
+    const card = document.createElement("article");
+
+    addText(card, "h4", item.title || "نتيجة بدون عنوان");
+    addText(card, "p", item.snippet || "لا يوجد وصف متاح");
+
+    if (item.url) {
+      const link = document.createElement("a");
+
+      link.textContent = "فتح المصدر";
+      link.href = item.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+
+      card.appendChild(link);
+    }
+
+    quickResults.appendChild(card);
+  });
+}
+
+بعد اللصق
+
+1. اضغط Commit changes.
+2. انتظر "Deploy live" في Render.
+3. افتح الموقع وجرب البحث عن "0116446644".
+
+أخبرني عندما تنتهي من اللصق والـ Commit.
