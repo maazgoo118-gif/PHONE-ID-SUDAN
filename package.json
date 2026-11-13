@@ -1,0 +1,17 @@
+{
+  "name": "phone-id-sudan",
+  "version": "1.0.0",
+  "description": "Sudan Phone Intelligence Platform",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "express-rate-limit": "^8.0.1",
+    "libphonenumber-js": "^1.12.9",
+    "dotenv": "^16.6.1"
+  }
+}
