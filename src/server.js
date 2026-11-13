@@ -29,27 +29,17 @@ const limiter = rateLimit({
 app.use("/api/", limiter);
 
 
-// ==================================
 // تحليل الرقم السوداني
-// ==================================
-
 function analyzePhone(number) {
   const phone = parsePhoneNumberFromString(
     number,
     "SD"
   );
 
-  if (!phone) {
+  if (!phone || phone.country !== "SD") {
     return {
       valid: false,
-      message: "تعذر تحليل الرقم"
-    };
-  }
-
-  if (phone.country !== "SD") {
-    return {
-      valid: false,
-      message: "هذا ليس رقماً سودانياً"
+      message: "هذا ليس رقماً سودانياً صالحاً"
     };
   }
 
@@ -65,27 +55,21 @@ function analyzePhone(number) {
 }
 
 
-// ==================================
 // توحيد الأرقام العربية والإنجليزية
-// ==================================
-
 function normalizeDigits(value) {
   return String(value)
-    .replace(/[٠-٩]/g, digit =>
-      String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))
+    .replace(/[٠-٩]/g, d =>
+      String("٠١٢٣٤٥٦٧٨٩".indexOf(d))
     )
-    .replace(/[۰-۹]/g, digit =>
-      String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))
+    .replace(/[۰-۹]/g, d =>
+      String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))
     )
     .replace(/\D/g, "");
 }
 
 
-// ==================================
-// التحقق من ارتباط النتيجة بالرقم
-// ==================================
-
-function isRelatedToPhone(item, phoneNumbers) {
+// التأكد من وجود الرقم
+function containsPhone(item, numbers) {
   const text = [
     item.title || "",
     item.snippet || "",
@@ -94,7 +78,7 @@ function isRelatedToPhone(item, phoneNumbers) {
 
   const normalizedText = normalizeDigits(text);
 
-  return phoneNumbers.some(number =>
+  return numbers.some(number =>
     normalizedText.includes(
       normalizeDigits(number)
     )
@@ -102,10 +86,37 @@ function isRelatedToPhone(item, phoneNumbers) {
 }
 
 
-// ==================================
-// الاتصال بمحرك Serper.live
-// ==================================
+// التأكد من أن النتيجة مرتبطة بالسودان
+function isSudaneseResult(item) {
+  const text = [
+    item.title || "",
+    item.snippet || "",
+    item.url || ""
+  ].join(" ").toLowerCase();
 
+  const indicators = [
+    "السودان",
+    "سودان",
+    "السوداني",
+    "السودانية",
+    "الخرطوم",
+    "sudan",
+    "sudanese",
+    "khartoum"
+  ];
+
+  const hasSudanWord = indicators.some(word =>
+    text.includes(word)
+  );
+
+  const hasSudanDomain =
+    /\.sd(?:\/|$|\?)/i.test(item.url || "");
+
+  return hasSudanWord || hasSudanDomain;
+}
+
+
+// الاتصال بمحرك البحث
 async function searchPublic(query) {
   const response = await fetch(
     "https://api.serper.live/v1/search",
@@ -120,7 +131,7 @@ async function searchPublic(query) {
       },
 
       body: JSON.stringify({
-        query: query,
+        query,
         country: "EG",
         language: "ar",
         device: "mobile",
@@ -134,27 +145,18 @@ async function searchPublic(query) {
   const data = await response.json();
 
   if (!response.ok) {
-    const error = new Error(
-      data.message || "فشل الاتصال بمحرك البحث"
+    throw new Error(
+      data.message || "فشل محرك البحث"
     );
-
-    error.status = response.status;
-
-    throw error;
   }
 
   return data.organic || [];
 }
 
 
-// ==================================
-// البحث عن رقم الهاتف
-// ==================================
-
+// البحث الرئيسي
 app.post("/api/search", async (req, res) => {
-
   try {
-
     const { number } = req.body;
 
     if (
@@ -167,29 +169,23 @@ app.post("/api/search", async (req, res) => {
       });
     }
 
-    // تحليل الرقم
-
     const analysis = analyzePhone(number);
 
     if (!analysis.valid) {
       return res.status(400).json({
         success: false,
-        error: "الرقم غير صحيح أو غير مدعوم",
+        error: "الرقم غير صحيح",
         analysis
       });
     }
-
-    // التأكد من وجود مفتاح البحث
 
     if (!process.env.SEARCH_API_KEY) {
       return res.status(503).json({
         success: false,
-        error: "محرك البحث غير مهيأ حالياً",
+        error: "محرك البحث غير مهيأ",
         analysis
       });
     }
-
-    // تجهيز صيغ الرقم
 
     const internationalNumber = analysis.number;
 
@@ -201,40 +197,32 @@ app.post("/api/search", async (req, res) => {
       localNumber
     ];
 
+    // استعلامات مخصصة للسودان
+    const queries = [
+      `"${localNumber}" السودان`,
+      `"${internationalNumber}" Sudan`
+    ];
+
     let results = [];
 
-    // البحث الأول: الرقم الدولي
+    for (const query of queries) {
+      const found = await searchPublic(query);
 
-    const firstQuery =
-      `"${internationalNumber}"`;
-
-    const firstResults =
-      await searchPublic(firstQuery);
-
-    results = firstResults.filter(item =>
-      isRelatedToPhone(item, phoneNumbers)
-    );
-
-
-    // البحث الثاني: الرقم المحلي
-    // ينفذ فقط إذا لم تظهر نتائج مطابقة
-
-    if (results.length === 0) {
-
-      const secondQuery =
-        `"${localNumber}"`;
-
-      const secondResults =
-        await searchPublic(secondQuery);
-
-      results = secondResults.filter(item =>
-        isRelatedToPhone(item, phoneNumbers)
+      // قبول النتائج التي تحقق الشرطين
+      const filtered = found.filter(item =>
+        containsPhone(item, phoneNumbers) &&
+        isSudaneseResult(item)
       );
+
+      results.push(...filtered);
+
+      // التوقف عند العثور على نتائج
+      if (results.length > 0) {
+        break;
+      }
     }
 
-
-    // إزالة النتائج المكررة
-
+    // إزالة التكرار
     const uniqueResults = Array.from(
       new Map(
         results
@@ -251,89 +239,50 @@ app.post("/api/search", async (req, res) => {
       ).values()
     );
 
-
-    // إرسال النتائج
-
     return res.json({
-
       success: true,
-
       analysis,
-
       results: uniqueResults,
-
       totalResults: uniqueResults.length,
-
       searchEngine: "Serper.live",
-
       stored: false,
 
-      message: uniqueResults.length > 0
-        ? "تم العثور على صفحات تحتوي الرقم"
-        : "لم يتم العثور على صفحات عامة تحتوي الرقم"
-
+      message: uniqueResults.length
+        ? "تم العثور على نتائج مرتبطة بالرقم والسودان"
+        : "لم نعثر على صفحات عامة تحقق شروط المطابقة"
     });
 
   } catch (error) {
-
-    console.error(
-      "Search error:",
-      error.status || "Unknown",
-      error.message
-    );
+    console.error("Search error:", error.message);
 
     return res.status(502).json({
-
       success: false,
-
-      error:
-        "تعذر إكمال البحث حالياً. حاول مرة أخرى لاحقاً."
-
+      error: "تعذر إكمال البحث حالياً"
     });
-
   }
-
 });
 
 
-// ==================================
 // الصفحة الرئيسية
-// ==================================
-
 app.get("/", (req, res) => {
-
   res.sendFile(
     path.join(__dirname, "../public/index.html")
   );
-
 });
 
 
-// ==================================
 // فحص الخادم
-// ==================================
-
 app.get("/health", (req, res) => {
-
   res.json({
-
     status: "online",
-
     project: "PHONE ID SUDAN"
-
   });
-
 });
 
 
-// ==================================
 // تشغيل الخادم
-// ==================================
-
 app.listen(PORT, () => {
-
   console.log(
     `PHONE ID SUDAN running on port ${PORT}`
   );
-
 });
