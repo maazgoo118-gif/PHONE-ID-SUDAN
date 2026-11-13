@@ -1,0 +1,105 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 20px;
+  background: #10151d;
+  color: #eaf2ff;
+  font-family: Arial, sans-serif;
+  direction: rtl;
+  text-align: center;
+}
+
+header {
+  padding: 25px 10px;
+}
+
+header h1 {
+  color: #35b8ff;
+  font-size: 27px;
+  margin-bottom: 10px;
+}
+
+header p {
+  color: #a9bdd2;
+  font-size: 16px;
+}
+
+main {
+  max-width: 600px;
+  margin: 30px auto;
+}
+
+.search-box {
+  background: #192432;
+  padding: 25px 18px;
+  border: 1px solid #29435c;
+  border-radius: 16px;
+}
+
+.search-box h2 {
+  font-size: 22px;
+  margin-bottom: 25px;
+}
+
+input {
+  width: 100%;
+  padding: 15px;
+  margin-bottom: 15px;
+  border-radius: 10px;
+  border: 1px solid #45627e;
+  background: #0c131c;
+  color: white;
+  font-size: 17px;
+  text-align: center;
+  outline: none;
+}
+
+button {
+  width: 100%;
+  padding: 15px;
+  background: #078de0;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+button:active {
+  opacity: 0.8;
+}
+
+#searchStatus {
+  color: #52c5ff;
+  margin-top: 15px;
+}
+
+#results {
+  margin-top: 20px;
+  text-align: right;
+}
+
+#analysis,
+#quickResults,
+#deepResults {
+  background: #192432;
+  border: 1px solid #29435c;
+  border-radius: 12px;
+  padding: 15px;
+  margin-bottom: 15px;
+  overflow-wrap: anywhere;
+}
+
+footer {
+  margin-top: 40px;
+  color: #8295a9;
+  font-size: 13px;
+}
+
+a {
+  color: #35b8ff;
+}
