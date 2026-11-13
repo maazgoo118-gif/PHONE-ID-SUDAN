@@ -4,6 +4,7 @@ const express = require("express");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const path = require("path");
+const { createClient } = require("@supabase/supabase-js");
 
 const {
   parsePhoneNumberFromString
@@ -11,6 +12,16 @@ const {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// الاتصال بقاعدة بيانات Supabase
+const supabase =
+  process.env.SUPABASE_URL &&
+  process.env.SUPABASE_PUBLISHABLE_KEY
+    ? createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_PUBLISHABLE_KEY
+      )
+    : null;
 
 app.use(helmet());
 app.use(express.json({ limit: "10kb" }));
@@ -31,10 +42,7 @@ app.use("/api/", limiter);
 
 // تحليل الرقم السوداني
 function analyzePhone(number) {
-  const phone = parsePhoneNumberFromString(
-    number,
-    "SD"
-  );
+  const phone = parsePhoneNumberFromString(number, "SD");
 
   if (!phone || phone.country !== "SD") {
     return {
@@ -68,27 +76,49 @@ function normalizeDigits(value) {
 }
 
 
-// التأكد من وجود الرقم
+// البحث عن الأسماء المعتمدة في قاعدة البيانات
+async function findPhoneNames(internationalNumber, localNumber) {
+  if (!supabase) {
+    throw new Error("Supabase is not configured");
+  }
+
+  const { data, error } = await supabase
+    .from("phone_names")
+    .select("display_name, source, created_at")
+    .in("phone_number", [
+      internationalNumber,
+      localNumber
+    ])
+    .eq("status", "approved")
+    .eq("consent_confirmed", true);
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
+}
+
+
+// التأكد من وجود الرقم في نتيجة البحث
 function containsPhone(item, numbers) {
-  const text = [
+  const content = [
     item.title || "",
     item.snippet || "",
     item.url || ""
   ].join(" ");
 
-  const normalizedText = normalizeDigits(text);
+  const normalizedText = normalizeDigits(content);
 
   return numbers.some(number =>
-    normalizedText.includes(
-      normalizeDigits(number)
-    )
+    normalizedText.includes(normalizeDigits(number))
   );
 }
 
 
 // التأكد من أن النتيجة مرتبطة بالسودان
 function isSudaneseResult(item) {
-  const text = [
+  const content = [
     item.title || "",
     item.snippet || "",
     item.url || ""
@@ -106,7 +136,7 @@ function isSudaneseResult(item) {
   ];
 
   const hasSudanWord = indicators.some(word =>
-    text.includes(word)
+    content.includes(word)
   );
 
   const hasSudanDomain =
@@ -122,14 +152,11 @@ async function searchPublic(query) {
     "https://api.serper.live/v1/search",
     {
       method: "POST",
-
       headers: {
         "Authorization":
           `Bearer ${process.env.SEARCH_API_KEY}`,
-
         "Content-Type": "application/json"
       },
-
       body: JSON.stringify({
         query,
         country: "EG",
@@ -137,7 +164,6 @@ async function searchPublic(query) {
         device: "mobile",
         limit: 10
       }),
-
       signal: AbortSignal.timeout(100000)
     }
   );
@@ -179,25 +205,56 @@ app.post("/api/search", async (req, res) => {
       });
     }
 
-    if (!process.env.SEARCH_API_KEY) {
-      return res.status(503).json({
-        success: false,
-        error: "محرك البحث غير مهيأ",
-        analysis
-      });
+    const internationalNumber = analysis.number;
+    const localNumber = "0" + analysis.nationalNumber;
+
+    // أولاً: البحث في قاعدة بيانات الأسماء
+    if (supabase) {
+      try {
+        const names = await findPhoneNames(
+          internationalNumber,
+          localNumber
+        );
+
+        if (names.length > 0) {
+          return res.json({
+            success: true,
+            analysis,
+            names,
+            totalNames: names.length,
+            results: [],
+            stored: false,
+            source: "PHONE ID SUDAN Database",
+            message: "تم العثور على أسماء معتمدة مرتبطة بالرقم"
+          });
+        }
+      } catch (databaseError) {
+        console.error(
+          "Database error:",
+          databaseError.message
+        );
+      }
     }
 
-    const internationalNumber = analysis.number;
-
-    const localNumber =
-      "0" + analysis.nationalNumber;
+    // ثانياً: البحث العام إذا لم توجد أسماء
+    if (!process.env.SEARCH_API_KEY) {
+      return res.json({
+        success: true,
+        analysis,
+        names: [],
+        results: [],
+        totalNames: 0,
+        totalResults: 0,
+        stored: false,
+        message: "لم نعثر على اسم معتمد لهذا الرقم"
+      });
+    }
 
     const phoneNumbers = [
       internationalNumber,
       localNumber
     ];
 
-    // استعلامات مخصصة للسودان
     const queries = [
       `"${localNumber}" السودان`,
       `"${internationalNumber}" Sudan`
@@ -208,7 +265,6 @@ app.post("/api/search", async (req, res) => {
     for (const query of queries) {
       const found = await searchPublic(query);
 
-      // قبول النتائج التي تحقق الشرطين
       const filtered = found.filter(item =>
         containsPhone(item, phoneNumbers) &&
         isSudaneseResult(item)
@@ -216,13 +272,11 @@ app.post("/api/search", async (req, res) => {
 
       results.push(...filtered);
 
-      // التوقف عند العثور على نتائج
       if (results.length > 0) {
         break;
       }
     }
 
-    // إزالة التكرار
     const uniqueResults = Array.from(
       new Map(
         results
@@ -242,14 +296,15 @@ app.post("/api/search", async (req, res) => {
     return res.json({
       success: true,
       analysis,
+      names: [],
+      totalNames: 0,
       results: uniqueResults,
       totalResults: uniqueResults.length,
-      searchEngine: "Serper.live",
       stored: false,
-
+      searchEngine: "Serper.live",
       message: uniqueResults.length
-        ? "تم العثور على نتائج مرتبطة بالرقم والسودان"
-        : "لم نعثر على صفحات عامة تحقق شروط المطابقة"
+        ? "عثرنا على صفحات عامة مرتبطة بالرقم، لكن لم نجد اسماً معتمداً"
+        : "لم نعثر على اسم معتمد أو صفحات عامة مطابقة"
     });
 
   } catch (error) {
